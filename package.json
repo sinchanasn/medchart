@@ -1,0 +1,9 @@
+{
+  "name": "medchart",
+  "version": "1.0.0",
+  "description": "MedChart app",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
