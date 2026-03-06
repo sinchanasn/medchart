@@ -1,338 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>MedChart Dashboard</title>
-<link rel="stylesheet" href="styles.css">
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-</head>
-<body>
-<div class="layout">
-  <aside class="sidebar">
-    <h3>MedChart</h3>
-    <div class="sidebar-controls">
-      <input type="file" id="fileInput" accept=".csv">
-      <button id="loadSample" class="btn">Load Sample Data</button>
-      <button id="exportCSV" class="btn">Export CSV</button>
-      <button id="exportPDF" class="btn">Export PDF</button>
-    </div>
-    <div class="filters">
-      <h4>Filters</h4>
-      <input type="text" id="searchInput" placeholder="Search Patient ID...">
-      <div class="severity-filters">
-        <button class="filter-btn active" data-severity="all">All</button>
-        <button class="filter-btn" data-severity="low">Low</button>
-        <button class="filter-btn" data-severity="medium">Medium</button>
-        <button class="filter-btn" data-severity="high">High</button>
-      </div>
-    </div>
-    <div class="theme-toggle">
-      <button id="themeToggle" class="btn">Toggle Light Mode</button>
-    </div>
-  </aside>
-  <main class="main-content">
-    <header class="header">
-      <h2>Dashboard Overview</h2>
-    </header>
-    <section class="scorecards">
-      <div class="card">
-        <h4>Total Patients</h4>
-        <p id="totalPatients">0</p>
-        <span class="trend" id="patientsTrend"></span>
-      </div>
-      <div class="card">
-        <h4>Critical Alerts</h4>
-        <p id="criticalAlerts">0</p>
-        <span class="trend" id="alertsTrend"></span>
-      </div>
-      <div class="card">
-        <h4>Average Heart Rate</h4>
-        <p id="avgHeartRate">0</p>
-        <span class="trend" id="hrTrend"></span>
-      </div>
-    </section>
-    <section class="alerts-section">
-      <h3>Critical Alerts</h3>
-      <div id="alertsList"></div>
-    </section>
-    <section class="data-table-section">
-      <h3>Patient Records</h3>
-      <table id="dataTable">
-        <thead>
-          <tr>
-            <th>Timestamp</th>
-            <th>Patient ID</th>
-            <th>Heart Rate</th>
-            <th>BP Systolic</th>
-            <th>BP Diastolic</th>
-            <th>SpO2</th>
-            <th>Resp Rate</th>
-            <th>Temperature</th>
-            <th>Severity</th>
-          </tr>
-        </thead>
-        <tbody id="tableBody"></tbody>
-      </table>
-    </section>
-  </main>
-</div>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedChart - Patient Vital Signs Monitoring Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-<script>
-// ── Config ──
-const VITALS = {
-  heart_rate: { label: "Heart Rate", normalMin: 60, normalMax: 100, criticalMin: 50, criticalMax: 120 },
-  blood_pressure_sys: { label: "Systolic BP", normalMin: 90, normalMax: 120, criticalMin: 80, criticalMax: 160 },
-  temperature: { label: "Temperature", normalMin: 36.1, normalMax: 37.2, criticalMin: 35.0, criticalMax: 38.5 }
-};
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #2d3748;
+        }
 
-// ── Severity Calculation ──
-function getSeverity(row) {
-  let hasCritical = false;
-  let hasAbnormal = false;
-  for (const key in VITALS) {
-    const val = row[key];
-    const v = VITALS[key];
-    if (val < v.criticalMin || val > v.criticalMax) hasCritical = true;
-    else if (val < v.normalMin || val > v.normalMax) hasAbnormal = true;
-  }
-  if (hasCritical) return 'high';
-  if (hasAbnormal) return 'medium';
-  return 'low';
-}
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
 
-// ── Sample CSV ──
-function generateSampleCSV() {
-  const rows = ["timestamp,patient_id,heart_rate,blood_pressure_sys,blood_pressure_dia,spo2,respiratory_rate,temperature"];
-  const now = Date.now();
-  for (let i = 0; i < 10; i++) {
-    let hr = 75 + i;
-    let bp = 120;
-    let temp = 36.6;
-    if (i === 5) { hr = 130; bp = 170; temp = 39.0; } // critical
-    if (i === 8) { hr = 45; temp = 34.5; } // critical
-    rows.push(`${new Date(now - i*60000).toISOString()},P001,${hr},${bp},80,98,16,${temp}`);
-  }
-  return rows.join("\n");
-}
-
-// ── Parse CSV ──
-function parseCSV(text) {
-  const result = Papa.parse(text, { header: true, dynamicTyping: true });
-  return result.data.map(row => ({ ...row, severity: getSeverity(row) }));
-}
-
-// ── Create Chart ──
-function createChart(container, label, dataKey, data) {
-  const sortedData = data.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-  const labels = sortedData.map(d => new Date(d.timestamp).toLocaleTimeString());
-  const values = sortedData.map(d => d[dataKey]);
-  const v = VITALS[dataKey];
-  const pointColors = values.map(val => (val < v.criticalMin || val > v.criticalMax) ? '#ef4444' : (val < v.normalMin || val > v.normalMax) ? '#f59e0b' : '#22c55e');
-  const ctx = document.createElement('canvas');
-  container.appendChild(ctx);
-  const chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: label,
-        data: values,
-        borderColor: '#22d3ee',
-        backgroundColor: '#22d3ee44',
-        tension: 0.3,
-        pointBackgroundColor: pointColors,
-        pointBorderColor: pointColors
-      }]
-    },
-    options: {
-      responsive: true,
-      scales: { 
-        x: { title: { display: true, text: 'Time' } },
-        y: { title: { display: true, text: label }, suggestedMin: v.normalMin - 10, suggestedMax: v.normalMax + 10 }
-      }
-    }
-  });
-}
-
-// ── Create Pie Chart ──
-function createPieChart(data) {
-  const severityCounts = { low: 0, medium: 0, high: 0 };
-  data.forEach(row => severityCounts[row.severity]++);
-  const ctx = document.getElementById('pieChart').getContext('2d');
-  new Chart(ctx, {
-    type: 'pie',
-    data: {
-      labels: ['Low', 'Medium', 'High'],
-      datasets: [{
-        data: [severityCounts.low, severityCounts.medium, severityCounts.high],
-        backgroundColor: ['#22c55e', '#f59e0b', '#ef4444']
-      }]
-    },
-    options: {
-      responsive: true
-    }
-  });
-}
-
-// ── Load Data ──
-let currentData = [];
-function loadData(data) {
-  currentData = data;
-  applyFilters();
-}
-
-// ── Apply Filters ──
-function applyFilters() {
-  let filteredData = [...currentData];
-  const searchQuery = document.getElementById('searchInput').value.toLowerCase();
-  if (searchQuery) {
-    filteredData = filteredData.filter(row => row.patient_id.toLowerCase().includes(searchQuery));
-  }
-  const activeSeverity = document.querySelector('.filter-btn.active').dataset.severity;
-  if (activeSeverity !== 'all') {
-    filteredData = filteredData.filter(row => row.severity === activeSeverity);
-  }
-
-  // Scorecards
-  const uniquePatients = new Set(filteredData.map(d => d.patient_id)).size;
-  document.getElementById('totalPatients').textContent = uniquePatients;
-  // Simple trend: compare to previous load, but since no history, maybe static or calculate from data
-  // For demo, assume no trend or calculate average change
-  const criticalAlerts = filteredData.filter(d => d.severity === 'high').length;
-  document.getElementById('criticalAlerts').textContent = criticalAlerts;
-  const avgHR = filteredData.length ? (filteredData.reduce((sum, d) => sum + d.heart_rate, 0) / filteredData.length).toFixed(1) : 0;
-  document.getElementById('avgHeartRate').textContent = avgHR;
-  // Trends: for demo, random or based on data
-  document.getElementById('patientsTrend').textContent = Math.random() > 0.5 ? '↑ 5%' : '↓ 3%';
-  document.getElementById('patientsTrend').className = 'trend ' + (document.getElementById('patientsTrend').textContent.includes('↑') ? 'up' : 'down');
-  document.getElementById('alertsTrend').textContent = criticalAlerts > 5 ? '↑ 10%' : '↓ 5%';
-  document.getElementById('alertsTrend').className = 'trend ' + (criticalAlerts > 5 ? 'up' : 'down');
-  document.getElementById('hrTrend').textContent = avgHR > 80 ? '↑ 2%' : '↓ 1%';
-  document.getElementById('hrTrend').className = 'trend ' + (avgHR > 80 ? 'up' : 'down');
-
-  // Charts
-  const chartsDiv = document.getElementById('charts');
-  chartsDiv.innerHTML = '';
-  ['heart_rate', 'blood_pressure_sys', 'temperature'].forEach(key => {
-    const container = document.createElement('div');
-    container.className = 'chart-container';
-    chartsDiv.appendChild(container);
-    createChart(container, VITALS[key].label, key, filteredData);
-  });
-  createPieChart(filteredData);
-
-  // Alerts
-  populateAlerts(filteredData);
-
-  // Table
-  populateTable(filteredData);
-}
-
-function populateTable(data) {
-  const tbody = document.getElementById('tableBody');
-  tbody.innerHTML = '';
-  data.forEach(row => {
-    const tr = document.createElement('tr');
-    const severityClass = `severity-${row.severity}`;
-    tr.innerHTML = `
-      <td>${new Date(row.timestamp).toLocaleString()}</td>
-      <td>${row.patient_id}</td>
-      <td>${row.heart_rate}</td>
-      <td>${row.blood_pressure_sys}</td>
-      <td>${row.blood_pressure_dia}</td>
-      <td>${row.spo2}</td>
-      <td>${row.respiratory_rate}</td>
-      <td>${row.temperature}</td>
-      <td><span class="severity-badge ${severityClass}">${row.severity}</span></td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-function populateAlerts(data) {
-  const alertsList = document.getElementById('alertsList');
-  alertsList.innerHTML = '';
-  const criticalData = data.filter(row => row.severity === 'high');
-  criticalData.forEach(row => {
-    const alertItem = document.createElement('div');
-    alertItem.className = 'alert-item';
-    alertItem.innerHTML = `
-      <strong>${row.patient_id}</strong> at ${new Date(row.timestamp).toLocaleString()}<br>
-      Heart Rate: ${row.heart_rate}, BP: ${row.blood_pressure_sys}, Temp: ${row.temperature}
-    `;
-    alertsList.appendChild(alertItem);
-  });
-  if (criticalData.length === 0) {
-    alertsList.innerHTML = '<p>No critical alerts.</p>';
-  }
-}
-
-// ── Events ──
-document.getElementById('fileInput').addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => loadData(parseCSV(reader.result));
-  reader.readAsText(file);
-});
-
-document.getElementById('loadSample').addEventListener('click', () => {
-  const csv = generateSampleCSV();
-  loadData(parseCSV(csv));
-});
-
-document.getElementById('searchInput').addEventListener('input', applyFilters);
-
-document.querySelectorAll('.filter-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    applyFilters();
-  });
-});
-
-document.getElementById('themeToggle').addEventListener('click', () => {
-  document.body.classList.toggle('light-mode');
-});
-
-document.getElementById('exportCSV').addEventListener('click', () => {
-  const csv = Papa.unparse(currentData);
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'filtered_data.csv';
-  a.click();
-});
-
-document.getElementById('exportPDF').addEventListener('click', () => {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  doc.text('Patient Records', 10, 10);
-  let y = 20;
-  currentData.forEach(row => {
-    doc.text(`${row.patient_id}: HR ${row.heart_rate}, Temp ${row.temperature}`, 10, y);
-    y += 10;
-  });
-  doc.save('records.pdf');
-});
-
-// ── Events ──
-document.getElementById('fileInput').addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => loadData(parseCSV(reader.result));
-  reader.readAsText(file);
-});
-
-document.getElementById('loadSample').addEventListener('click', () => {
-  const csv = generateSampleCSV();
-  loadData(parseCSV(csv));
-});
-
-</script>
-</body>
-</html>
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 10px 30px
